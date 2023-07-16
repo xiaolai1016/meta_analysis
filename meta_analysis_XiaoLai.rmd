@@ -1,0 +1,239 @@
+---
+title: "meta_analysis_XiaoLai"
+author: "Xiao Lai"
+date: "5/24/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load required library
+```{r }
+library(readxl)
+library(tidyverse)
+library(dbplyr)
+library(metafor)
+library(purrr)
+library(broom)
+library(data.table)
+```
+
+# Load the dataset
+```{r }
+# Get a list of file names
+file.names <- list.files(path = "/Users/xiaolai/Desktop/data", pattern = "*.xlsx", full.names = T)
+
+# Function to read each file, add a column with Surveyor name, and return the data frame
+file.names2 <- file.names[-1] # After tyring to merge all data frames into one, I found the dataset DN01 missing one column "ES". Therefore, exclude it from this analysis.
+read_and_add_name <- function(file.names2) {
+  df <- read_excel(file.names2)
+  df$Surveyor <- file.names2
+  return(df)
+}
+
+# Load all files and add a column with the file name
+data.list <- lapply(file.names2, read_and_add_name)
+
+# Merge all data frames into one using rbind
+data.combined <- do.call(rbind, data.list)
+
+# Replace the file path to dataset name
+data.combined$Surveyor <- tools::file_path_sans_ext(basename(data.combined$Surveyor))
+
+# Remove first column because it's index for each dataset
+data.combined <- data.combined[-1]
+```
+
+# Convert data type and make a backup copy
+```{r }
+str(data.combined) # data structure
+# Conver data types
+data.combined$screening = as.factor(data.combined$screening) 
+data.combined$Height = as.numeric(data.combined$Height)
+data.combined$Alcohol = as.numeric(data.combined$Alcohol)
+data.combined$ES = as.factor(data.combined$ES)
+data.combined$Surveyor = as.factor(data.combined$Surveyor)
+summary(data.combined)
+
+# Make a copy of data
+data <- data.combined
+data.combined <- data
+```
+
+# Q1 Check for NA
+```{r }
+# Check NA by each column
+sapply(data.combined, function(x) sum(is.na(x)))
+
+# List of columns that contain NA
+columns_to_check <- c("Height", "Alcohol")
+
+# Check fo NA from each Surveyor
+# Initialize an empty list to hold results
+result_list <- list()
+
+# Iterate over each column
+for(column in columns_to_check){
+  # Group by factor column, summarize to count NA's
+  temp_df <- data.combined %>%
+    group_by(Surveyor) %>%
+    summarise(na_count = sum(is.na(get(column))))
+  
+  # Add the result to the list, naming it by the column
+  result_list[[column]] <- temp_df
+}
+
+# View the result
+combined_table <- reduce(result_list, full_join, by = "Surveyor")
+combined_table <- rename(combined_table,c('Height'='na_count.x', 'Alcohol'='na_count.y')) # rename the column names
+
+# Calculate the missing data percentage by Surveyor
+count <- data.frame(summary(data.combined$Surveyor))
+combined_table$Total <- count$summary.data.combined.Surveyor.
+combined_table$Percentage <- ((combined_table$Height+combined_table$Alcohol)/combined_table$Total)*100
+# Print the combined table
+print(combined_table)
+#fwrite(combined_table, file = '/Users/xiaolai/Desktop/combined_table2.csv')
+```
+# Q2 Heterogeneity test by each Surveyor
+```{r}
+# Convert screening and ES column to a categorical variable
+data.combined$screening <- ifelse(data.combined$screening == "Y", 1, 0)
+
+data.combined$ES <- as.character(data.combined$ES)
+data.combined$ES <- ifelse(data.combined$ES == "Retired/unemployed", 0,
+                           ifelse(data.combined$ES == "Part-time", 1,
+                                  ifelse(data.combined$ES == "Full-time", 2, NA)))
+
+
+str(data.combined)
+
+```
+
+```{r}
+# Calculate the number of screenings and non-screenings for each surveyor
+df_summary <- data.combined %>%
+  group_by(Surveyor) %>%
+  summarise(total_screening = sum(screening, na.rm = TRUE),
+            total_non_screening = sum(1 - screening, na.rm = TRUE))
+
+# Fit a random-effects model
+res_RE <- rma(measure="OR", ai = total_screening, n1i = total_screening + total_non_screening, 
+           ci = total_non_screening, n2i = total_screening + total_non_screening, 
+           data = df_summary, method = "REML")
+
+# Fit a fixed-effects model
+res_FE <- rma(measure="OR", ai = total_screening, n1i = total_screening + total_non_screening, 
+           ci = total_non_screening, n2i = total_screening + total_non_screening, 
+           data = df_summary, method = "FE")
+
+# Display the results
+print(res_RE)
+print(res_FE)
+```
+
+# Visualize screening decisions from patients vs Surveyors
+```{r}
+levels(data$Surveyor)
+data$Surveyor <- factor(data$Surveyor, levels=c("DN02", "DN03","DN04",  "DN05","DN06", "DN07", "DN08","DN09", "DN010", "DN011", "DN012")) # reorder the data for labeling 
+data %>%
+    ggplot(aes(x = Surveyor, fill = factor(screening))) +
+    geom_bar(position = "dodge") +
+    labs(x = "Surveyor", y = "Count", fill = "Screening") +
+    theme_classic() +
+    scale_fill_discrete(name = "Screening", labels = c("No", "Yes"))+
+    theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust = 0.4),text = element_text(size=20),
+        axis.line= element_line(size = 1),
+        axis.text = element_text(color="black"))
+```
+
+
+# Q3 Check the association between specific patient characteristics and their decision to undergo breast cancer screening
+```{r}
+# Remove missing values for analysis
+data.combined <- data.combined %>% drop_na(Alcohol) #%>% drop_na(Height)
+
+# Make 'Alcohol' and 'Height' numeric
+data.combined$Alcohol <- as.numeric(as.character(data.combined$Alcohol))
+data.combined$Height <- as.numeric(as.character(data.combined$Height))
+
+# Assume 'total_patients' is the count of patients surveyed by each surveyor.
+data.combined <- data.combined %>%
+  group_by(Surveyor) %>%
+  mutate(se_screening = sqrt(screening * (1 - screening) / n()))
+
+# Fit a random-effects model
+model <- rma(yi = screening, 
+             vi = se_screening^2, 
+             mods = ~ Age + Weight + Height + Alcohol + ES + Deps, 
+             data = data.combined, 
+             method = "REML")
+
+# Display the results
+summary(model)
+```
+
+
+```{r}
+# Reshape data to long format
+data.long <- data %>%
+  pivot_longer(cols = c(Weight, Height, Age, Alcohol), names_to = "Measurement", values_to = "Value")
+
+# Plot with facets
+ggplot(data.long, aes(x = screening, y = Value, color = screening)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.3, height = 0.2, size=1, aes(fill = screening, color = screening))+
+  labs(x = "Screening", y = "Value") +
+  facet_wrap(~ Measurement, scales = "free") +
+  theme_classic() +
+  scale_fill_discrete()+
+  theme(plot.title = element_text(hjust = 0.4),text = element_text(size=20),
+        axis.line= element_line(size = 1),
+        axis.text = element_text(color="black"))
+
+#ggsave("FourCharacteristics", plot = last_plot(), device = "pdf", path = "/Users/xiaolai/Desktop/",
+#       scale = 1, width = 30, height = 30, units = c("cm"),
+#       dpi = 400)
+```
+
+```{r}
+# Plot with facets
+ggplot(data, aes(x = ES, y = Deps, color = screening)) +
+  geom_point() +
+  geom_jitter(width = 0.3, height = 0.2, size=1.5, aes(fill = screening, color = screening))+
+  labs(x = "ES", y = "Deps") +
+  theme_classic() +
+  scale_fill_discrete()+
+  theme(plot.title = element_text(hjust = 0.4),text = element_text(size=20),
+        axis.line= element_line(size = 1),
+        axis.text = element_text(color="black"))
+
+#ggsave("ESDeps", plot = last_plot(), device = "pdf", path = "/Users/xiaolai/Desktop/",
+#       scale = 1, width = 30, height = 30, units = c("cm"),
+#       dpi = 400)
+```
+
+```{r}
+# Plot with facets
+levels(data$Surveyor)
+data$Surveyor <- factor(data$Surveyor, levels=c("DN02", "DN03","DN04",  "DN05","DN06", "DN07", "DN08","DN09", "DN010", "DN011", "DN012")) # reorder label
+
+ggplot(data, aes(x = ES, y = Deps, color = screening)) +
+  geom_point() +
+  geom_jitter(width = 0.3, height = 0.2, size=1, aes(fill = screening, color = screening))+
+  labs(x = "ES", y = "Deps") +
+  facet_wrap(~ Surveyor) +
+  theme_classic() +
+  scale_fill_discrete()+
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust = 0.4),text = element_text(size=20),
+        axis.line= element_line(size = 1),
+        axis.text = element_text(color="black"))
+
+#ggsave("ESDepsSur", plot = last_plot(), device = "pdf", path = "/Users/xiaolai/Desktop/",
+#       scale = 1, width = 30, height = 30, units = c("cm"),
+#       dpi = 400)
+```
