@@ -16,7 +16,6 @@ The data was collected by different teams. I have performed the follwoing analys
 *  Association test between patient charactieristcs and their decision to undergor the screening.
 
 Distribution of patients' employment status (ES) and number of dependents (Deps) patterns in relation to their decisions about breast cancer screening.
-<br/>
 <p align="center">
-  <img src="ESDeps.png" width="100">
+  <img width="520" height="350" src="ESDeps.png">
 </p>
