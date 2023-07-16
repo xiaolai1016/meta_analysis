@@ -15,7 +15,8 @@ The data was collected by different teams. I have performed the follwoing analys
 *  Heterogeneity test.
 *  Association test between patient charactieristcs and their decision to undergor the screening.
 
+Distribution of patients' employment status (ES) and number of dependents (Deps) patterns in relation to their decisions about breast cancer screening.
+<br/>
 <p align="center">
-  <a href="#nb"> Distribution of patients' employment status (ES) and number of dependents (Deps) patterns in relation to their decisions about breast</a>  •
-  <a href="#ci"> ESDeps.png </a> 
+  <img src="ESDeps.png" width="100">
 </p>
