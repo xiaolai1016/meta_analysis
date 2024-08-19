@@ -233,6 +233,7 @@ ggplot(data, aes(x = ES, y = Deps, color = screening)) +
         axis.line= element_line(size = 1),
         axis.text = element_text(color="black"))
 
+# save last plot
 #ggsave("ESDepsSur", plot = last_plot(), device = "pdf", path = "/Users/xiaolai/Desktop/",
 #       scale = 1, width = 30, height = 30, units = c("cm"),
 #       dpi = 400)
